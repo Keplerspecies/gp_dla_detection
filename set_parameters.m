@@ -31,6 +31,7 @@ loading_max_lambda = 2400;                  % This maximum is set so we include 
 
 % preprocessing parameters
 z_qso_cut      = 2.15;                        % filter out QSOs with z less than this threshold
+z_qso_training_max_cut = 3.5; % roughly 95% of training data occurs before this redshift; assuming for normalization purposes (move to set_parameters when pleased)
 min_num_pixels = 400;                         % minimum number of non-masked pixels
 
 % normalization parameters

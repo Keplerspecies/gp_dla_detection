@@ -8,8 +8,7 @@ catalog = load(sprintf('%s/catalog', processed_directory(training_release)));
 % load preprocessed QSOs
 variables_to_load = {'all_wavelengths', 'all_flux', 'all_noise_variance', ...
                      'all_pixel_mask'};
-load(sprintf('%s/preloaded_qsos', processed_directory(training_release)), ...
-     variables_to_load{:});
+preqsos = matfile(sprintf('%s/preloaded_qsos.mat', processed_directory(training_release)));
 
 % determine which spectra to use for training; allow string value for
 % train_ind
@@ -18,11 +17,16 @@ if (ischar(train_ind))
 end
 
 % select training vectors
+all_wavelengths    =          preqsos.all_wavelengths;
 all_wavelengths    =    all_wavelengths(train_ind, :);
+all_flux           =                 preqsos.all_flux;
 all_flux           =           all_flux(train_ind, :);
+all_noise_variance =       preqsos.all_noise_variance;
 all_noise_variance = all_noise_variance(train_ind, :);
+all_pixel_mask     =           preqsos.all_pixel_mask;
 all_pixel_mask     =     all_pixel_mask(train_ind, :);
-z_qsos             =     catalog.z_qsos(train_ind);
+z_qsos             =        catalog.z_qsos(train_ind);
+clear preqsos
 
 num_quasars = numel(z_qsos);
 
@@ -42,10 +46,10 @@ for i = 1:num_quasars
   this_noise_variance = all_noise_variance{i}';
   this_pixel_mask     =     all_pixel_mask{i}';
 
+  this_rest_wavelengths = emitted_wavelengths(this_wavelengths, z_qso);
+
   this_flux(this_pixel_mask)           = nan;
   this_noise_variance(this_pixel_mask) = nan;
-
-  this_rest_wavelengths = emitted_wavelengths(this_wavelengths, z_qso);
 
   lya_1pzs(i, :) = ...
       interp1(this_rest_wavelengths, ...
@@ -67,6 +71,16 @@ lya_1pzs(ind)             = nan;
 rest_fluxes(ind)          = nan;
 rest_noise_variances(ind) = nan;
 
+% Filter out spectra which have too many NaN pixels
+ind = sum(isnan(rest_fluxes),2) < num_rest_pixels-min_num_pixels;
+fprintf("Filtering %g quasars\n", length(rest_fluxes) - nnz(ind));
+rest_fluxes = rest_fluxes(ind, :);
+rest_noise_variances = rest_noise_variances(ind,:);
+lya_1pzs = lya_1pzs(ind,:);
+% Check for columns which contain only NaN on either end.
+nancolfrac = sum(isnan(rest_fluxes),1)/ nnz(ind);
+fprintf("Columns with nan > 0.9: ");
+max(find(nancolfrac > 0.9))
 % find empirical mean vector and center data
 mu = nanmean(rest_fluxes);
 centered_rest_fluxes = bsxfun(@minus, rest_fluxes, mu);
@@ -76,7 +90,7 @@ clear('rest_fluxes');
 [coefficients, ~, latent] = ...
     pca(centered_rest_fluxes, ...
         'numcomponents', k, ...
-        'rows',          'pairwise');
+        'rows',          'complete');
 
 objective_function = @(x) objective(x, centered_rest_fluxes, lya_1pzs, ...
         rest_noise_variances);
