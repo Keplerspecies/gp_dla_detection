@@ -4,14 +4,19 @@
 
 function log_p = log_mvnpdf_low_rank(y, mu, M, d)
 
+  %disp(mean(y));
+  %disp(mean(mu));
+  %disp(mean(M(:)));
+  %disp(mean(d));
   log_2pi = 1.83787706640934534;
 
   [n, k] = size(M);
-
-  y = y - mu;
-
+ 
+  y = y - (mu);
+  %d = ones(size(d)) * .001; %here
   d_inv = 1 ./ d;
   D_inv_y = d_inv .* y;
+
   D_inv_M = d_inv .* M;
 
   % use Woodbury identity, define
@@ -30,5 +35,4 @@ function log_p = log_mvnpdf_low_rank(y, mu, M, d)
   log_det_K = sum(log(d)) + 2 * sum(log(diag(L)));
 
   log_p = -0.5 * (y' * K_inv_y + log_det_K + n * log_2pi);
-
 end

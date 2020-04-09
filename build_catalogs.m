@@ -27,6 +27,7 @@ mjds             =  dr12_catalog{6};
 fiber_ids        =  dr12_catalog{7};
 z_qsos           =  dr12_catalog{8};
 snrs             =  dr12_catalog{33};
+zwarning         =  dr12_catalog{11};
 bal_visual_flags = (dr12_catalog{56} > 0);
 
 num_quasars = numel(z_qsos);
@@ -46,6 +47,13 @@ filter_flags(ind) = bitset(filter_flags(ind), 1, true);
 % filtering bit 1: BAL
 ind = (bal_visual_flags);
 filter_flags(ind) = bitset(filter_flags(ind), 2, true);
+
+% filtering bit 4: ZWARNING
+ind = (zwarning > 0);
+% but include `MANY_OUTLIERS` in our samples (bit: 1000)
+ind_many_outliers      = (zwarning == bin2dec('10000'));
+ind(ind_many_outliers) = 0;
+filter_flags(ind) = bitset(filter_flags(ind), 5, true);
 
 los_inds = containers.Map();
 dla_inds = containers.Map();
