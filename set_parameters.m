@@ -35,8 +35,8 @@ z_qso_training_max_cut = 3.5; % roughly 95% of training data occurs before this 
 min_num_pixels = 400;                         % minimum number of non-masked pixels
 
 % normalization parameters
-normalization_min_lambda = lya_wavelength;              % range of rest wavelengths to use   Å
-normalization_max_lambda = 1325; %lya_wavelength + 250; %   for flux normalization
+normalization_min_lambda = 1325;              % range of rest wavelengths to use   Å
+normalization_max_lambda = 1390; %lya_wavelength + 250; %   for flux normalization
 
 % null model parameters
 min_lambda         =  910;                 % range of rest wavelengths to       Å
@@ -54,7 +54,7 @@ minFunc_options =               ...           % optimization options for model f
            'MaxFunEvals', 2000);
 
 % DLA model parameters: parameter samples
-num_dla_samples     = 100000;                  % number of parameter samples
+num_dla_samples     = 40000;                  % number of parameter samples
 alpha               = 0.9;                    % weight of KDE component in mixture
 uniform_min_log_nhi = 20.0;                   % range of column density samples    [cm⁻²]
 uniform_max_log_nhi = 23.0;                   % from uniform distribution

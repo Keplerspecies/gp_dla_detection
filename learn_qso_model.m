@@ -70,6 +70,7 @@ for i = 1:num_quasars
   rest_noise_variances(i, :) = ...
       interp1(this_rest_wavelengths, this_noise_variance, rest_wavelengths);
   rest_noise_variances(i, :) = rest_noise_variances(i, :) / this_median .^ 2;
+
 end
 clear('all_wavelengths', 'all_flux', 'all_noise_variance', 'all_pixel_mask');
 
@@ -109,6 +110,10 @@ initial_M = bsxfun(@times, coefficients(:, 1:k), sqrt(latent(1:k))');
 
 % initialize log omega to log of elementwise sample standard deviation
 initial_log_omega = log(nanstd(centered_rest_fluxes));
+% eliminate prior after ly-alpha
+disp("size: "); disp(size(mu));
+rest_wavelengths = (min_lambda:dlambda:max_lambda);
+initial_log_omega(rest_wavelengths > lya_wavelength) = .00001;
 
 initial_log_c_0   = log(initial_c_0);
 initial_log_tau_0 = log(initial_tau_0);

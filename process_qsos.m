@@ -92,10 +92,10 @@ log_posteriors_dla_sub        = nan(num_quasars, 1);
 log_posteriors_dla_sup        = nan(num_quasars, 1);
 log_posteriors_dla            = nan(num_quasars, 1);
 z_true                        = nan(num_quasars, 1);
-dla_true                        = nan(num_quasars, 1);
+dla_true                      = nan(num_quasars, 1);
 z_map                         = nan(num_quasars, 1);
-z_dla_map                         = nan(num_quasars, 1);
-n_hi_map                         = nan(num_quasars, 1);
+z_dla_map                     = nan(num_quasars, 1);
+n_hi_map                      = nan(num_quasars, 1);
 signal_to_noise               = nan(num_quasars, 1);
 
 c_0   = exp(log_c_0);
@@ -244,7 +244,7 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         
         %no noise after ly_alpha peak @ 1215.67 in rest frame
         ind_w = find(this_rest_wavelengths > lya_wavelength);
-        this_omega2(ind_w) = .001;
+        this_omega2(ind_w) = .00;
         
         % baseline: probability of no DLA model
         sample_log_likelihoods_no_dla(quasar_ind, z_list_ind) = ...
@@ -347,7 +347,7 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
     
     fprintf(' took %0.3fs.\n', toc);
     
-    if mod(quasar_ind, 50) == 0
+    if mod(quasar_ind, 10) == 0
         save(['./checkpointing/curDLA_', optTagFull, '.mat'], 'log_posteriors_dla_sub', 'log_posteriors_dla_sup', 'log_posteriors_dla', 'log_posteriors_no_dla', 'z_true', 'dla_true', 'quasar_ind', 'quasar_num',...
             'sample_log_likelihoods_dla', 'sample_log_likelihoods_no_dla', 'sample_z_dlas', 'nhi_samples', 'offset_samples_qso', 'offset_samples', 'z_map', 'signal_to_noise', 'z_dla_map', 'n_hi_map');
     end
