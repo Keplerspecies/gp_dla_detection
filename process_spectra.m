@@ -18,7 +18,7 @@ prior_catalog = ...
     %inc = 50000;
     qso_ind = [inc * (i-1) + 1:inc*i]; %indices in test set to iterate over
     
-    %filter();%[1:10000]); %switch to array of values
+    %filter([1:5000]); %switch to array of values
     %spectra_setup();
     ps([1:sum(test_ind(qso_ind))], optTagFull);
     end

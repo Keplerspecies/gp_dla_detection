@@ -112,12 +112,13 @@ this_p_dlas              = zeros(length(z_list), 1);
 
 quasar_ind = 1;
 try
-    load(['./checkpointing/curDLA_', optTag, '.mat']); %checkmarking code
+    load(['./checkpointing/curDLA_dr12q-', optTag, '-1.mat']); %checkmarking code
 catch ME
+    disp(optTag);
     0;
 end
 q_ind_start = quasar_ind;
-
+disp('q_ind_start'); disp(q_ind_start);
 for quasar_ind = q_ind_start:num_quasars %quasar list
     tic;
     quasar_num = qso_ind(quasar_ind);
@@ -165,6 +166,7 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
             min_observed_lambda)/rframe_len:max_observed_lambda;
         vq_range = vq_range';
         this_flux = interp1(this_wavelengths, this_flux, vq_range);
+        this_noise_variance(isinf(this_noise_variance)) = .01; %kludge to fix bad data
         this_noise_variance = interp1(this_wavelengths, this_noise_variance, vq_range);
         this_wavelengths = vq_range;
         % convert to QSO rest frame
@@ -172,13 +174,12 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         
 	%normalizing here
   	ind = (this_rest_wavelengths >= normalization_min_lambda) & ...
-        (this_rest_wavelengths <= normalization_max_lambda); % & ...
+        (this_rest_wavelengths <= normalization_max_lambda);% & ...
         %(~this_pixel_mask);
 
         this_median = nanmedian(this_flux(ind));
-  	this_flux = this_flux / this_median;
-
-  	this_noise_variance = this_noise_variance / this_median .^ 2;
+        this_flux = this_flux / this_median;
+        this_noise_variance = this_noise_variance / this_median .^ 2;
 
         ind = (this_rest_wavelengths >= min_lambda) & ...
             (this_rest_wavelengths <= max_lambda);
@@ -193,7 +194,8 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         this_rest_wavelengths = this_rest_wavelengths(ind);
         this_flux             =             this_flux(ind);
         this_noise_variance   =   this_noise_variance(ind);
-        this_noise_variance(isinf(this_noise_variance)) = mean(this_noise_variance); %rare kludge to fix bad data
+        %this_noise_variance(isinf(this_noise_variance)) = mean(this_noise_variance); %rare kludge to fix bad data
+        this_pixel_mask = this_pixel_mask(ind);
 
         fluxes{z_list_ind} = this_flux;
         rest_wavelengths{z_list_ind} = this_rest_wavelengths;
@@ -244,12 +246,16 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         
         %no noise after ly_alpha peak @ 1215.67 in rest frame
         ind_w = find(this_rest_wavelengths > lya_wavelength);
-        this_omega2(ind_w) = .00;
+        this_omega2(ind_w) = .001;
         
         % baseline: probability of no DLA model
         sample_log_likelihoods_no_dla(quasar_ind, z_list_ind) = ...
             log_mvnpdf_low_rank(this_flux, this_mu, this_M, ...
             this_omega2 + this_noise_variance);
+        
+        if(isinf(sample_log_likelihoods_no_dla(quasar_ind, z_list_ind)))
+            0;
+        end
         
         sample_log_posteriors_no_dla(quasar_ind, z_list_ind) = ...
             sample_log_priors_no_dla(quasar_ind, z_list_ind) + sample_log_likelihoods_no_dla(quasar_ind, z_list_ind);
@@ -283,14 +289,14 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
             ];
         
         % to retain only unmasked pixels from computed absorption profile
-        ind = (~this_pixel_mask(ind));
+        %ind = (~this_pixel_mask(ind));
         
         % compute probabilities under DLA model for each of the sampled
         % (normalized offset, log(N HI)) pairs
         % absorption corresponding to this sample
         absorption = voigt(padded_wavelengths, sample_z_dlas(i), ...
             nhi_samples(i), num_lines);
-        
+       %absorbtion = absorbtion(ind); 
         
         % delta z = v / c = H(z) d / c = 70 (km/s/Mpc) * sqrt(0.3 * (1+z)^3 + 0.7) * (5 Mpc) / (3x10^5 km/s) ~ 0.005 at z=3
         if add_proximity_zone
