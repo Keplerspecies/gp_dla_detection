@@ -18,8 +18,8 @@ prior_catalog = ...
     %inc = 50000;
     qso_ind = [inc * (i-1) + 1:inc*i]; %indices in test set to iterate over
     
-    filter(); %switch to array of values
-    spectra_setup();
+    %filter([1:10000]); %switch to array of values
+    %spectra_setup();
     ps([1:sum(test_ind(qso_ind))], optTagFull);
     end
     %gen_diag(list(qso_ind(1)));
@@ -58,11 +58,11 @@ test_ind = '(catalog.filter_flags == 0)';
 optTagFull = [release, '-', optTagFull];
 
 % testing: repeat for safety
-generate_dla_samples;
+%generate_dla_samples;
 
 % process the spectra
 if integrate
-    playground3;
+    process_qsos;
 else
     process_qsos;
 end

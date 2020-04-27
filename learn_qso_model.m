@@ -34,8 +34,18 @@ rest_wavelengths = (min_lambda:dlambda:max_lambda);
 num_rest_pixels = numel(rest_wavelengths);
 
 lya_1pzs             = nan(num_quasars, num_rest_pixels);
+all_lyman_1pzs       = nan(num_forest_lines, num_quasars, num_rest_pixels);
 rest_fluxes          = nan(num_quasars, num_rest_pixels);
 rest_noise_variances = nan(num_quasars, num_rest_pixels);
+
+
+% the preload_qsos should fliter out empty spectra;
+% this line is to prevent there is any empty spectra
+% in preloaded_qsos.mat for some reason
+is_empty             = false(num_quasars, 1);
+
+bluewards_fluxes_mean = 0; bluewards_fluxes_var = 0; bluewards_fluxes_count = 0;
+redwards_fluxes_mean = 0; redwards_fluxes_var = 0; redwards_fluxes_count = 0;
 
 % interpolate quasars onto chosen rest wavelength grid
 for i = 1:num_quasars
@@ -51,18 +61,87 @@ for i = 1:num_quasars
   this_flux(this_pixel_mask)           = nan;
   this_noise_variance(this_pixel_mask) = nan;
 
+  fprintf('processing quasar %i with lambda_size = %i %i ...\n', i, size(this_wavelengths))
+  
+  if all(size(this_wavelengths) == [0 0])
+    is_empty(i, 1) = 1;
+    continue;
+  end
+
   lya_1pzs(i, :) = ...
       interp1(this_rest_wavelengths, ...
               1 + (this_wavelengths - lya_wavelength) / lya_wavelength, ...
               rest_wavelengths);
+  
+  % this_wavelength is raw wavelength (w/t ind)
+  % so we need an indicator here to comfine lya_1pzs
+  % below Lyman alpha (do we need to make the indicator
+  % has a lower bound at Lyman limit here?)
+  % indicator = lya_1pzs(i, :) <= (1 + z_qso);
+  % lya_1pzs(i, :) = lya_1pzs(i, :) .* indicator;
+
+  % include all members in Lyman series to the forest
+  for j = 1:num_forest_lines
+    this_transition_wavelength = all_transition_wavelengths(j);
+
+    all_lyman_1pzs(j, i, :) = ...
+      interp1(this_rest_wavelengths, ...
+              1 + (this_wavelengths - this_transition_wavelength) / this_transition_wavelength, ... 
+              rest_wavelengths);
+
+    % indicator function: z absorbers <= z_qso
+    indicator = all_lyman_1pzs(j, i, :) <= (1 + z_qso);
+
+    all_lyman_1pzs(j, i, :) = all_lyman_1pzs(j, i, :) .* indicator;
+  end
 
   rest_fluxes(i, :) = ...
-      interp1(this_rest_wavelengths, this_flux,           rest_wavelengths);
+      interp1(this_rest_wavelengths, this_flux,           rest_wavelengths);i
+
+  %calculating redwards & bluewards mean and variance for model continuation
+  %calculating variance w.r.t. mean of given spectrum (not all spectra) to one pass
+  %    and not be influenced by oddly normalized outliers
+  bluewards_flux                = this_flux(this_rest_wavelengths < min_lambda);
+  bluewards_fluxes_mean         = bluewards_fluxes_mean + nansum(bluewards_flux);
+  bluewards_fluxes_var          = bluewards_fluxes_var + nansum( (bluewards_flux - nanmean(bluewards_flux)) .^ 2); 
+  bluewards_fluxes_count        = bluewards_fluxes_count + length(bluewards_flux);
+
+  redwards_flux                 = this_flux(this_rest_wavelengths > max_lambda);
+  redwards_fluxes_mean          = redwards_fluxes_mean + nansum(redwards_flux);
+  redwards_fluxes_var           = redwards_fluxes_var + nansum( (redwards_flux - nanmean(redwards_flux)) .^ 2); 
+  redwards_fluxes_count         = redwards_fluxes_count + length(redwards_flux);
+
+  %normalizing here
+  ind = (this_rest_wavelengths >= normalization_min_lambda) & ...
+        (this_rest_wavelengths <= normalization_max_lambda) & ...
+        (~this_pixel_mask);
+
+  this_median = nanmedian(this_flux(ind));
+  rest_fluxes(i, :) = rest_fluxes(i, :) / this_median;
 
   rest_noise_variances(i, :) = ...
       interp1(this_rest_wavelengths, this_noise_variance, rest_wavelengths);
+  rest_noise_variances(i, :) = rest_noise_variances(i, :) / this_median .^ 2;
 end
 clear('all_wavelengths', 'all_flux', 'all_noise_variance', 'all_pixel_mask');
+
+bluewards_fluxes_mean   = bluewards_fluxes_mean / bluewards_fluxes_count;
+bluewards_fluxes_var    = bluewards_fluxes_var / bluewards_fluxes_count;
+redwards_fluxes_mean    = redwards_fluxes_mean / redwards_fluxes_count;
+redwards_fluxes_var     = redwards_fluxes_var / bluewards_fluxes_count;
+
+% filter out empty spectra
+% note: if you've done this in preload_qsos then skip these lines
+z_qsos               = z_qsos(~is_empty);
+lya_1pzs             = lya_1pzs(~is_empty, :);
+rest_fluxes          = rest_fluxes(~is_empty, :);
+rest_noise_variances = rest_noise_variances(~is_empty, :);
+all_lyman_1pzs       = all_lyman_1pzs(:, ~is_empty, :);
+
+% update num_quasars in consideration
+num_quasars = numel(z_qsos);
+
+fprintf('Get rid of empty spectra, num_quasars = %i\n', num_quasars);
 
 % mask noisy pixels
 ind = (rest_noise_variances > max_noise_variance);
@@ -70,30 +149,76 @@ fprintf("Masking %g of pixels\n", nnz(ind)*1./numel(ind));
 lya_1pzs(ind)             = nan;
 rest_fluxes(ind)          = nan;
 rest_noise_variances(ind) = nan;
+for i = 1:num_quasars
+  for j = 1:num_forest_lines
+    all_lyman_1pzs(j, i, ind(i, :))  = nan;
+  end
+end
+
+% reverse the rest_fluxes back to the fluxes before encountering Lyα forest
+prev_tau_0 = 0.0023; % Kim et al. (2007) priors
+prev_beta  = 3.65;
+
+rest_fluxes_div_exp1pz      = nan(num_quasars, num_rest_pixels);
+rest_noise_variances_exp1pz = nan(num_quasars, num_rest_pixels);
+
+for i = 1:num_quasars
+  % compute the total optical depth from all Lyman series members
+  % Apr 8: not using NaN here anymore due to range beyond Lya will all be NaNs
+  total_optical_depth = zeros(num_forest_lines, num_rest_pixels);
+
+  for j = 1:num_forest_lines
+    % calculate the oscillator strengths for Lyman series
+    this_tau_0 = prev_tau_0 * ...
+      all_oscillator_strengths(j)   / lya_oscillator_strength * ...
+      all_transition_wavelengths(j) / lya_wavelength;
+    
+    % remove the leading dimension
+    this_lyman_1pzs = squeeze(all_lyman_1pzs(j, i, :))'; % (1, num_rest_pixels)
+
+    total_optical_depth(j, :) = this_tau_0 .* (this_lyman_1pzs.^prev_beta);
+  end
+
+  % Apr 8: using zeros instead so not nansum here anymore
+  % beyond lya, absorption fcn shoud be unity
+  lya_absorption = exp(- sum(total_optical_depth, 1) );
+
+  % We have to reverse the effect of Lyα for both mean-flux and observational noise
+  rest_fluxes_div_exp1pz(i, :)      = rest_fluxes(i, :) ./ lya_absorption;
+  rest_noise_variances_exp1pz(i, :) = rest_noise_variances(i, :) ./ (lya_absorption.^2);
+end
+
+clear('all_lyman_1pzs');
 
 % Filter out spectra which have too many NaN pixels
-ind = sum(isnan(rest_fluxes),2) < num_rest_pixels-min_num_pixels;
-fprintf("Filtering %g quasars\n", length(rest_fluxes) - nnz(ind));
-rest_fluxes = rest_fluxes(ind, :);
-rest_noise_variances = rest_noise_variances(ind,:);
-lya_1pzs = lya_1pzs(ind,:);
+ind = sum(isnan(rest_fluxes_div_exp1pz),2) < num_rest_pixels-min_num_pixels;
+
+fprintf("Filtering %g quasars\n", length(rest_fluxes_div_exp1pz) - nnz(ind));
+
+z_qsos                      = z_qsos(ind);
+rest_fluxes_div_exp1pz      = rest_fluxes_div_exp1pz(ind, :);
+rest_noise_variances_exp1pz = rest_noise_variances_exp1pz(ind, :);
+lya_1pzs                    = lya_1pzs(ind, :);
+
 % Check for columns which contain only NaN on either end.
-nancolfrac = sum(isnan(rest_fluxes),1)/ nnz(ind);
+nancolfrac = sum(isnan(rest_fluxes_div_exp1pz), 1) / nnz(ind);
 fprintf("Columns with nan > 0.9: ");
 max(find(nancolfrac > 0.9))
+
 % find empirical mean vector and center data
-mu = nanmean(rest_fluxes);
-centered_rest_fluxes = bsxfun(@minus, rest_fluxes, mu);
-clear('rest_fluxes');
+mu = nanmean(rest_fluxes_div_exp1pz);
+centered_rest_fluxes = bsxfun(@minus, rest_fluxes_div_exp1pz, mu);
+clear('rest_fluxes', 'rest_fluxes_div_exp1pz');
 
 % get top-k PCA vectors to initialize M
 [coefficients, ~, latent] = ...
     pca(centered_rest_fluxes, ...
         'numcomponents', k, ...
-        'rows',          'complete');
+        'rows',          'pairwise');
 
 objective_function = @(x) objective(x, centered_rest_fluxes, lya_1pzs, ...
-        rest_noise_variances);
+        rest_noise_variances_exp1pz, num_forest_lines, all_transition_wavelengths, ...
+        all_oscillator_strengths, z_qsos);
 
 % initialize A to top-k PCA components of non-DLA-containing spectra
 initial_M = bsxfun(@times, coefficients(:, 1:k), sqrt(latent(1:k))');
@@ -130,7 +255,9 @@ variables_to_save = {'training_release', 'train_ind', 'max_noise_variance', ...
                      'initial_M', 'initial_log_omega', 'initial_log_c_0', ...
                      'initial_tau_0', 'initial_beta',  'M', 'log_omega', ...
                      'log_c_0', 'log_tau_0', 'log_beta', 'log_likelihood', ...
-                     'minFunc_output'};
+                     'minFunc_output', ... 
+                     'bluewards_fluxes_mean', 'bluewards_fluxes_var', ...
+                     'redwards_fluxes_mean', 'redwards_fluxes_var'    };
 
 save(sprintf('%s/learned_qso_model_%s',             ...
              processed_directory(training_release), ...
