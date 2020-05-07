@@ -10,7 +10,8 @@
 %   g(x) = ∂f/∂x
 
 function [f, g] = objective(x, centered_rest_fluxes, lya_1pzs, ...
-          rest_noise_variances)
+          rest_noise_variances, num_forest_lines, all_transition_wavelengths, ...
+          all_oscillator_strengths, z_qsos)
 
   [num_quasars, num_pixels] = size(centered_rest_fluxes);
 
@@ -41,11 +42,16 @@ function [f, g] = objective(x, centered_rest_fluxes, lya_1pzs, ...
   for i = 1:num_quasars
     ind = (~isnan(centered_rest_fluxes(i, :)));
 
+    % Apr 12: directly pass z_qsos in the argument since we don't want
+    % zeros in lya_1pzs to mess up the gradients in spectrum_loss
+    zqso_1pz = z_qsos(i) + 1;
+
     [this_f, this_dM, this_dlog_omega, ...
      this_dlog_c_0, this_dlog_tau_0, this_dlog_beta] ...
         = spectrum_loss(centered_rest_fluxes(i, ind)', lya_1pzs(i, ind)', ...
                         rest_noise_variances(i, ind)', M(ind, :), omega2(ind), ...
-                        c_0, tau_0, beta);
+                        c_0, tau_0, beta, num_forest_lines, all_transition_wavelengths, ...
+                        all_oscillator_strengths, zqso_1pz);
 
     f               = f               + this_f;
     dM(ind, :)      = dM(ind, :)      + this_dM;
@@ -57,15 +63,17 @@ function [f, g] = objective(x, centered_rest_fluxes, lya_1pzs, ...
   end
 
   % apply prior for τ₀ (Kim, et al. 2007)
-  tau_0_mu    = 0.0023;
-  tau_0_sigma = 0.0007;
+  % change this prior to multi-DLA paper; sigma is just a guess
+  tau_0_mu    = 0.000164; %0.0023;
+  tau_0_sigma = 0.000050; %0.0007;
 
   dlog_tau_0 = dlog_tau_0 + ...
       tau_0 * (tau_0 - tau_0_mu) / tau_0_sigma^2;
 
   % apply prior for β (Kim, et al. 2007)
-  beta_mu    = 3.65;
-  beta_sigma = 0.21;
+  % change this prior to multi-DLA paper; sigma is just a guess
+  beta_mu    = 5.2714; %3.65;
+  beta_sigma = 0.30;   %0.21;
 
   dlog_beta = dlog_beta + ...
       beta * (beta - beta_mu) / beta_sigma^2;

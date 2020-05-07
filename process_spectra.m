@@ -18,8 +18,8 @@ prior_catalog = ...
     %inc = 50000;
     qso_ind = [inc * (i-1) + 1:inc*i]; %indices in test set to iterate over
     
-    %filter([1:5000]); %switch to array of values
-    %spectra_setup();
+    filter(); %switch to array of values
+    spectra_setup();
     ps([1:sum(test_ind(qso_ind))], optTagFull);
     end
     %gen_diag(list(qso_ind(1)));
@@ -62,8 +62,7 @@ generate_dla_samples;
 
 % process the spectra
 if integrate
-    process_qsos
-    %playground3;
+    playground3;
 else
     process_qsos;
 end
@@ -175,4 +174,3 @@ function [lmap] = filter_helper(map, IND)
     end
     lmap = map;
 end
-
