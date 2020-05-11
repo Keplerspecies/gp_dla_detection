@@ -90,4 +90,3 @@ for i = 1:num_quasars
           plates(i), plates(i), mjds(i), fiber_ids(i));
 end
 fclose(fid);
-

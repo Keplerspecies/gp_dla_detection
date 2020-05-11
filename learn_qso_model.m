@@ -75,24 +75,9 @@ for i = 1:num_quasars
 
   rest_noise_variances(i, :) = ...
       interp1(this_rest_wavelengths, this_noise_variance, rest_wavelengths);
-  rest_noise_variances(i, :) = rest_noise_variances(i, :) / this_median .^ 2;  %setting up bluward/redwards of restframe txt files
-  bluewards_flux{i} = this_flux(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
-  bluewards_nv{i} = this_noise_variance(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
-  redwards_flux{i} = this_flux(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
-  redwards_nv{i} = this_noise_variance(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
+  rest_noise_variances(i, :) = rest_noise_variances(i, :) / this_median .^ 2;
 end
-bluewards_flux = cell2mat(bluewards_flux);
-bluewards_nv = cell2mat(bluewards_nv);
-redwards_flux = cell2mat(redwards_flux);
-redwards_nv = cell2mat(redwards_nv);
-
-addpath('./offrestfit');
-
-[bluewards_mu, bluewards_sigma] = fitendmodel(bluewards_flux, bluewards_nv);
-[redwards_mu, redwards_sigma] = fitendmodel(redwards_flux, redwards_nv);
-
 clear('all_wavelengths', 'all_flux', 'all_noise_variance', 'all_pixel_mask');
-clear('bluewards_flux', 'bluewards_nv', 'redwards_flux', 'redwards_nv');
 
 % filter out empty spectra
 % note: if you've done this in preload_qsos then skip these lines
@@ -150,12 +135,12 @@ pca_centered_rest_flux = centered_rest_fluxes;
 [num_quasars, ~] = size(pca_centered_rest_flux);
 
 for i = 1:num_quasars
-  this_pca_centered_rest_flux = pca_centered_rest_flux(i, :);
+  this_pca_cetnered_rest_flux = pca_centered_rest_flux(i, :);
 
   % assign median value for each row to nan
-  ind = isnan(this_pca_centered_rest_flux);
+  ind = isnan(this_pca_cetnered_rest_flux);
 
-  pca_centered_rest_flux(i, ind) = nanmedian(this_pca_centered_rest_flux);
+  pca_centered_rest_flux(i, ind) = nanmedian(this_pca_cetnered_rest_flux);
 end
 
 % get top-k PCA vectors to initialize M
@@ -178,8 +163,7 @@ M = reshape(x(ind), [num_rest_pixels, k]);
 variables_to_save = {'training_release', 'train_ind', 'max_noise_variance', ...
                      'minFunc_options', 'rest_wavelengths', 'mu', ...
                      'initial_M', 'M',  'log_likelihood', ...
-                     'minFunc_output', 'bluewards_mu', 'bluewards_sigma', ...
-                     'redwards_mu', 'redwards_sigma'};
+                     'minFunc_output'};
 
 save(sprintf('%s/learned_zqso_only_model_%s_norm_%d-%d',             ...
              processed_directory(training_release), ...

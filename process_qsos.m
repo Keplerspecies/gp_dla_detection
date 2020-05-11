@@ -20,12 +20,11 @@ prev_beta  = 3.65;
 occams_factor = 1000;
 
 % load QSO model from training release
-variables_to_load = {'rest_wavelengths', 'mu', 'M', 'log_omega',
-    'bluewards_mu', 'bluewards_sigma', ...
-    'redwards_mu', 'redwards_sigma'};
-load(sprintf('%s/learned_qso_model_%s',             ...
+variables_to_load = {'rest_wavelengths', 'mu', 'M'};
+load(sprintf('%s/learned_zqso_only_model_%s_norm_%d-%d',             ...
     processed_directory(training_release), ...
-    training_set_name),                    ...
+    training_set_name, ...
+    normalization_min_lambda, normalization_max_lambda),                    ...
     variables_to_load{:});
 
 % load redshifts from catalog to process
@@ -142,10 +141,6 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         continue;
     end
     
-    %preprocess Gaussian i.i.d. model for off-restframe observations
-    bw_model = makedist('Normal', 'mu', bluewards_mu, 'sigma', bluewards_sigma);
-    rw_model = makedist('Normal', 'mu', redwards_mu, 'sigma', redwards_sigma);
-    
     parfor i = 1:num_zqso_samples       %variant redshift in quasars
         z_qso = offset_samples_qso(i);
 
@@ -162,12 +157,6 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
 
         min_observed_lambda = max(min_pos_lambda, min(this_wavelengths));
         lambda_observed = (max_observed_lambda - min_observed_lambda);
-        
-        %Find probability for out-of-range model
-        bw_likelihoods = pdf(bw_model, this_flux(this_wavelengths < min_observed_lambda));
-        bw_log_likelihood = sum(log(bw_likelihoods));
-        rw_likelihoods = pdf(rw_model, this_flux(this_wavelengths > max_observed_lambda));
-        rw_log_likelihood = sum(log(rw_likelihoods));
 
         ind = (this_wavelengths > min_observed_lambda) & (this_wavelengths < max_observed_lambda);
         this_flux           = this_flux(ind);
@@ -214,15 +203,15 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         %Debug output
         %all_mus{z_list_ind} = this_mu;
         %all_Ms{z_list_ind} = this_M;
-
-        
+       
         sample_log_priors = 0;
 
-        %occams = occams_factor * (1 - lambda_observed / (max_lambda - min_lambda) );
+        % additional occams razor for penalizing the not enough data points in the window
+        occams = occams_factor * (1 - lambda_observed / (max_lambda - min_lambda) );
 
         sample_log_posteriors(quasar_ind, i) = ...
             log_mvnpdf_low_rank(this_flux, this_mu, this_M, this_noise_variance) + sample_log_priors ...
-            + bw_log_likelihood + rw_log_likelihood;
+            - occams;
 
         % % Correct for incomplete data
         % corr = nnz(ind) - length(this_rest_wavelengths);
@@ -255,6 +244,6 @@ filename = sprintf('%s/processed_zqso_only_qsos_%s-%s_%d-%d_%d-%d_oc%d', ...
     processed_directory(release), ...
     test_set_name, optTag, ...
     qso_ind(1), qso_ind(1) + numel(qso_ind), ...
-    normalization_min_lambda, normalization_max_lambda);
+    normalization_min_lambda, normalization_max_lambda, occams_factor);
 
 save(filename, variables_to_save{:}, '-v7.3');
