@@ -1,4 +1,3 @@
-
 function [] = process_spectra(start_, end_, inc)
     %clear
     %clc 
@@ -19,7 +18,7 @@ prior_catalog = ...
     %inc = 50000;
     qso_ind = [inc * (i-1) + 1:inc*i]; %indices in test set to iterate over
     
-    %filter(); %switch to array of values
+    %filter([1:1000]); %switch to array of values
     %spectra_setup();
     ps([1:sum(test_ind(qso_ind))], optTagFull);
     end
@@ -59,10 +58,11 @@ test_ind = '(catalog.filter_flags == 0)';
 optTagFull = [release, '-', optTagFull];
 
 % testing: repeat for safety
-generate_dla_samples;
+%generate_dla_samples;
 
 % process the spectra
 process_qsos;
+
 end
 
 function [] = spectra_presetup()
@@ -102,7 +102,7 @@ cd ..
 training_set_name = 'dr9q_minus_concordance';
 learn_qso_model;
 training_release  = 'dr12q';
-%generate_dla_samples;
+generate_dla_samples;
 
 end
 
@@ -119,14 +119,18 @@ function [] = filter(varargin)
     else
         IND = varargin{1};
     end
-    load([base_directory, '/dr12q/processed/oldcatalog.mat']);
+    %load([base_directory, '/dr12q/processed/oldcatalog.mat']);
+    load([base_directory, '/dr12q/processed/zqso_only_catalog.mat']);
 
     tic;
     
+    % removed from no z_qsos catalog
+    %{
     dla_inds = filter_helper(dla_inds, IND);
     log_nhis = filter_helper(log_nhis, IND);
     los_inds = filter_helper(los_inds, IND);
     z_dlas = filter_helper(z_dlas, IND);
+    %}
     
     bal_visual_flags = bal_visual_flags(IND);
     decs = decs(IND);
@@ -141,11 +145,12 @@ function [] = filter(varargin)
     snrs = snrs(IND);
     thing_ids = thing_ids(IND);
     z_qsos = z_qsos(IND);
-    save([base_directory, '/dr12q/processed/catalog.mat']);
+    save([base_directory, '/dr12q/processed/zqso_only_catalog.mat']);
     clear('dla_inds', 'log_nhis', 'los_inds', 'z_dlas', 'bal_visual_flags', 'decs', ...
         'fiber_ids', 'filter_flags', 'in_dr10', 'in_dr9', 'mjds', 'plates', 'ras', ...
         'sdss_names', 'snrs', 'thing_ids', 'z_qsos');
     
+    %use old file option
     if length(IND) > 1000000
         preqsos = matfile([base_directory, '/dr12q/processed/oldpreloaded_qsos.mat']);
         all_flux = preqsos.all_flux(IND, 1);
@@ -154,6 +159,7 @@ function [] = filter(varargin)
         all_pixel_mask = preqsos.all_pixel_mask(IND, 1);
         all_wavelengths = preqsos.all_wavelengths(IND, 1);
         save([base_directory, '/dr12q/processed/preloaded_qsos.mat'], '-v7.3');
+    %read spectra in option
     else
         spectra_presetup();
     end
