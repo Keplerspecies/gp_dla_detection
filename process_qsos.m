@@ -38,7 +38,9 @@ prior = rmfield(prior, 'z_dlas');
 
 % load QSO model from training release
 variables_to_load = {'rest_wavelengths', 'mu', 'M', 'log_omega', ...
-    'log_c_0', 'log_tau_0', 'log_beta'};
+    'log_c_0', 'log_tau_0', 'log_beta', ...
+    'bluewards_mu', 'bluewards_sigma', ...
+    'redwards_mu', 'redwards_sigma'};
 load(sprintf('%s/learned_qso_model_%s',             ...
     processed_directory(training_release), ...
     training_set_name),                    ...
@@ -79,30 +81,17 @@ if exist('qso_ind', 'var') == 0
 end
 num_quasars = numel(qso_ind);
 
-% augment model for interpolation
-min_lambda_testing = 0; max_lambda_testing = 3000;
-rest_wavelengths_testing = [min_lambda_testing:dlambda:max_lambda_testing];
-
-%read in from python output for bluewards & redwards models
-
-%
-mu = [ ones(size(bluewards_ind))*blueward_fluxes_mean, ...
-       mu, ...
-       ones(size(redwards_ind))*redward_fluxes_mean ];
-M = [ eye(length(bluewards_ind, k)*blueward_fluxes_mean,...
-      M, ...
-      eye(length(redwards_ind, k)*redwards_fluxes_mean)];
-log_omega = [ zeros(size(bluewards_ind)), ...
-       log_omega, ...
-       zeros(size(redwards_ind)) ]; 
-
 % preprocess model interpolants
 mu_interpolator = ...
-    griddedInterpolant(rest_wavelengths_testing,        mu,        'linear');
+    griddedInterpolant(rest_wavelengths,        mu,        'linear');
 M_interpolator = ...
-    griddedInterpolant({rest_wavelengths_testing, 1:k}, M,         'linear');
+    griddedInterpolant({rest_wavelengths, 1:k}, M,         'linear');
 log_omega_interpolator = ...
-    griddedInterpolant(rest_wavelengths_testing,        log_omega, 'linear');
+    griddedInterpolant(rest_wavelengths,        log_omega, 'linear');
+
+%preprocess Gaussian i.i.d. model for off-restframe observations
+%bw_model = makedist('Normal', 'mu', bluewards_mu, 'sigma', bluewards_sigma);
+%rw_model = makedist('Normal', 'mu', redwards_mu, 'sigma', redwards_sigma);
 
 % initialize results
 % prevent parfor error, should use nan(num_quasars, num_dla_samples); or not save these variables;
@@ -169,7 +158,7 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
     this_flux             =             this_flux(ind);
     this_noise_variance   =   this_noise_variance(ind);
 
-    this_noise_variance(isinf(this_noise_variance)) = .01; %kludge to fix bad data
+    this_noise_variance(isinf(this_noise_variance)) = nanmean(this_noise_variance); %kludge to fix bad data
     
     this_pixel_signal_to_noise  = sqrt(this_noise_variance) ./ abs(this_flux);
 
@@ -185,7 +174,6 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
     this_sample_log_likelihoods_no_dla = nan(1, num_dla_samples);
     this_sample_log_likelihoods_dla    = nan(1, num_dla_samples);
 
-
     % move these outside the parfor to avoid constantly querying these large arrays
     this_out_wavelengths    =    all_wavelengths{quasar_num};
     this_out_flux           =           all_flux{quasar_num};
@@ -199,23 +187,31 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         continue;
     end
     
-    parfor i = 1:num_dla_samples       %variant redshift in quasars 
+    for i = 1:num_dla_samples       %variant redshift in quasars 
+     
         z_qso = offset_samples_qso(i);
-
+        if mod(i, 250) == 0
+            disp(i);
+        %end
         % keep a copy inside the parfor since we are modifying them
         this_wavelengths    = this_out_wavelengths;
         this_flux           = this_out_flux;
         this_noise_variance = this_out_noise_variance;
         this_pixel_mask     = this_out_pixel_mask;
-
+        
         %Cut off observations
-        max_pos_lambda = observed_wavelengths(max_lambda_testing, z_qso);
-        min_pos_lambda = observed_wavelengths(min_lambda_testing, z_qso);
+        max_pos_lambda = observed_wavelengths(max_lambda, z_qso);
+        min_pos_lambda = observed_wavelengths(min_lambda, z_qso);
         max_observed_lambda = min(max_pos_lambda, max(this_wavelengths));
-
         min_observed_lambda = max(min_pos_lambda, min(this_wavelengths));
         lambda_observed = (max_observed_lambda - min_observed_lambda);
-
+        
+        %Find probability for out-of-range model
+        %bw_likelihoods = pdf(bw_model, this_flux(this_wavelengths < min_observed_lambda));
+        %bw_log_likelihood = sum(log(bw_likelihoods));
+        %rw_likelihoods = pdf(rw_model, this_flux(this_wavelengths > max_observed_lambda));
+        %rw_log_likelihood = sum(log(rw_likelihoods));
+        
         ind = (this_wavelengths > min_observed_lambda) & (this_wavelengths < max_observed_lambda);
         this_flux           = this_flux(ind);
         this_noise_variance = this_noise_variance(ind);
@@ -367,11 +363,8 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         % baseline: probability of no DLA model
         this_sample_log_likelihoods_no_dla(1, i) = ...
             log_mvnpdf_low_rank(this_flux, this_mu, this_M, ...
-            this_omega2 + this_noise_variance) + log(lambda_observed/ dlambda);
-        
-        % duplicated
-        % sample_log_posteriors_no_dla(quasar_ind, i) = ...
-        %     this_sample_log_priors_no_dla(1, i) + this_sample_log_likelihoods_no_dla(1, i);
+            this_omega2 + this_noise_variance);
+        %this_sample_log_likelihoods_no_dla(1, i) = this_sample_log_likelihoods_no_dla(1, i) + bw_log_likelihood + rw_log_likelihood;
 
         %fprintf_debug(' ... log p(D | z_QSO, no DLA)     : %0.2f\n', ...
         %    this_sample_log_likelihoods_no_dla(1, i));
@@ -432,11 +425,9 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         % Add a penalty for short spectra: the expected reduced chi^2 of each spectral pixel that would have been observed.
         this_sample_log_likelihoods_dla(1, i) = ...
             log_mvnpdf_low_rank(this_flux, dla_mu, dla_M, ...
-            dla_omega2 + this_noise_variance) + log(lambda_observed/ dlambda);
-        
-        % duplicated
-        % sample_log_posteriors_dla(quasar_ind, i) = ...
-        %     this_sample_log_priors_dla(1, i) + this_sample_log_likelihoods_dla(1, i);
+            dla_omega2 + this_noise_variance);
+        % Add in penalty for bluewards + redwards spectra
+        % this_sample_log_likelihoods_dla(1, i) = this_sample_log_likelihoods_dla(1, i) + bw_log_likelihood + rw_log_likelihood;
     end
 
     DLA_cut = 20.3;
@@ -528,3 +519,4 @@ filename = sprintf('%s/processed_qsos_%s-%s_%d-%d', ...
     qso_ind(1), qso_ind(1) + numel(qso_ind));
 
 save(filename, variables_to_save{:}, '-v7.3');
+

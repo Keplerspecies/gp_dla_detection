@@ -1,3 +1,4 @@
+
 function [] = process_spectra(start_, end_, inc)
     %clear
     %clc 
@@ -18,8 +19,8 @@ prior_catalog = ...
     %inc = 50000;
     qso_ind = [inc * (i-1) + 1:inc*i]; %indices in test set to iterate over
     
-    filter(); %switch to array of values
-    spectra_setup();
+    %filter(); %switch to array of values
+    %spectra_setup();
     ps([1:sum(test_ind(qso_ind))], optTagFull);
     end
     %gen_diag(list(qso_ind(1)));
@@ -61,11 +62,7 @@ optTagFull = [release, '-', optTagFull];
 generate_dla_samples;
 
 % process the spectra
-if integrate
-    playground3;
-else
-    process_qsos;
-end
+process_qsos;
 end
 
 function [] = spectra_presetup()

@@ -55,7 +55,7 @@ minFunc_options =               ...           % optimization options for model f
            'MaxFunEvals', 4000);
 
 % DLA model parameters: parameter samples
-num_dla_samples     = 100000;                 % number of parameter samples
+num_dla_samples     = 10000;                 % number of parameter samples
 alpha               = 0.9;                    % weight of KDE component in mixture
 uniform_min_log_nhi = 20.0;                   % range of column density samples    [cm⁻²]
 uniform_max_log_nhi = 23.0;                   % from uniform distribution

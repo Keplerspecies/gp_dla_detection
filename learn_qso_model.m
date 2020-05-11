@@ -9,7 +9,6 @@ catalog = load(sprintf('%s/catalog', processed_directory(training_release)));
 variables_to_load = {'all_wavelengths', 'all_flux', 'all_noise_variance', ...
                      'all_pixel_mask'};
 preqsos = matfile(sprintf('%s/preloaded_qsos.mat', processed_directory(training_release)));
-%preqsos = matfile(sprintf('%s/oldpreloaded_qsos.mat', processed_directory(training_release)));
 
 % determine which spectra to use for training; allow string value for
 % train_ind
@@ -17,6 +16,10 @@ if (ischar(train_ind))
   train_ind = eval(train_ind);
 end
 
+z_qsos             =        catalog.z_qsos(train_ind);
+
+%to fix spatial concerns, we'll be reading in and finding our
+%out-of-restframe paramters here, before our in-restframe parameters
 % select training vectors
 all_wavelengths    =          preqsos.all_wavelengths;
 all_wavelengths    =    all_wavelengths(train_ind, :);
@@ -26,12 +29,12 @@ all_noise_variance =       preqsos.all_noise_variance;
 all_noise_variance = all_noise_variance(train_ind, :);
 all_pixel_mask     =           preqsos.all_pixel_mask;
 all_pixel_mask     =     all_pixel_mask(train_ind, :);
-z_qsos             =        catalog.z_qsos(train_ind);
 clear preqsos
 
 num_quasars = numel(z_qsos);
 
 rest_wavelengths = (min_lambda:dlambda:max_lambda);
+
 num_rest_pixels = numel(rest_wavelengths);
 
 lya_1pzs             = nan(num_quasars, num_rest_pixels);
@@ -44,11 +47,6 @@ rest_noise_variances = nan(num_quasars, num_rest_pixels);
 % this line is to prevent there is any empty spectra
 % in preloaded_qsos.mat for some reason
 is_empty             = false(num_quasars, 1);
-
-% contains strings for out-of-restframe computations
-f_s_bluewards = ''; nv_s_bluewards = '';
-f_s_redwards = ''; nv_s_redwards = '';
-nl = newline; count = 0;
 
 % interpolate quasars onto chosen rest wavelength grid
 for i = 1:num_quasars
@@ -114,38 +112,23 @@ for i = 1:num_quasars
   rest_noise_variances(i, :) = rest_noise_variances(i, :) / this_median .^ 2;
 
   %setting up bluward/redwards of restframe txt files
-  f = this_flux(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
-  nv = this_noise_variance(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
-  %setting out-of-range bluewards/redwards files here
-  if ~isempty(f)
-      count = count + 1;
-      f_l = sprintf('%f ', f);
-      nv_l = sprintf('%f ', nv);
-      f_s_bluewards = sprintf('%s %s ', f_s_bluewards, f_l);
-      nv_s_bluewards = sprintf('%s %s ', nv_s_bluewards, nv_l);
-  end
-  f = this_flux(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
-  nv = this_noise_variance(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
-  %setting out-of-range bluewards/redwards files here
-  if ~isempty(f)
-      count = count + 1;
-      f_l = sprintf('%f ', f);
-      nv_l = sprintf('%f ', nv);
-      f_s_redwards = sprintf('%s %s ', f_s_redwards, f_l);
-      nv_s_redwards = sprintf('%s %s ', nv_s_redwards, nv_l);
-  end
+  bluewards_flux{i} = this_flux(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
+  bluewards_nv{i} = this_noise_variance(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
+  redwards_flux{i} = this_flux(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
+  redwards_nv{i} = this_noise_variance(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
 end
+bluewards_flux = cell2mat(bluewards_flux);
+bluewards_nv = cell2mat(bluewards_nv);
+redwards_flux = cell2mat(redwards_flux);
+redwards_nv = cell2mat(redwards_nv);
 
-f_id = fopen('red.txt', 'w');
-fprintf(f_id, '%s %s %s', f_s_redwards, nl, nv_s_redwards);
-fclose(f_id);
+addpath('./offrestfit');
 
-f_id = fopen('blue.txt', 'w');
-fprintf(f_id, '%s %s %s', f_s_bluewards, nl, nv_s_bluewards);
-fclose(f_id);
+[bluewards_mu, bluewards_sigma] = fitendmodel(bluewards_flux, bluewards_nv);
+[redwards_mu, redwards_sigma] = fitendmodel(redwards_flux, redwards_nv);
 
-clear('f_id', 'nv_id', 'f_s_bluewards', 'nv_s_bluewards', 'f_s_redwards', 'f_s_bluewards');
 clear('all_wavelengths', 'all_flux', 'all_noise_variance', 'all_pixel_mask');
+clear('bluewards_flux', 'bluewards_nv', 'redwards_flux', 'redwards_nv');
 
 % filter out empty spectra
 % note: if you've done this in preload_qsos then skip these lines
@@ -533,25 +516,8 @@ variables_to_save = {'training_release', 'train_ind', 'max_noise_variance', ...
                      'initial_M', 'initial_log_omega', 'initial_log_c_0', ...
                      'initial_tau_0', 'initial_beta',  'M', 'log_omega', ...
                      'log_c_0', 'log_tau_0', 'log_beta', 'log_likelihood', ...
-                     'minFunc_output'};
-
-save(sprintf('%s/learned_qso_model_%s',             ...
-             processed_directory(training_release), ...
-             training_set_name), ...
-     variables_to_save{:}, '-v7.3');
-ind = ((num_rest_pixels * k + 1):(num_rest_pixels * (k + 1)));
-log_omega = x(ind)';
-
-log_c_0   = x(end - 2);
-log_tau_0 = x(end - 1);
-log_beta  = x(end);
-
-variables_to_save = {'training_release', 'train_ind', 'max_noise_variance', ...
-                     'minFunc_options', 'rest_wavelengths', 'mu', ...
-                     'initial_M', 'initial_log_omega', 'initial_log_c_0', ...
-                     'initial_tau_0', 'initial_beta',  'M', 'log_omega', ...
-                     'log_c_0', 'log_tau_0', 'log_beta', 'log_likelihood', ...
-                     'minFunc_output'};
+                     'minFunc_output', 'bluewards_mu', 'bluewards_sigma', ...
+                     'redwards_mu', 'redwards_sigma'};
 
 save(sprintf('%s/learned_qso_model_%s',             ...
              processed_directory(training_release), ...
