@@ -76,10 +76,15 @@ for i = 1:num_quasars
   rest_noise_variances(i, :) = ...
       interp1(this_rest_wavelengths, this_noise_variance, rest_wavelengths);
   rest_noise_variances(i, :) = rest_noise_variances(i, :) / this_median .^ 2;  %setting up bluward/redwards of restframe txt files
-  bluewards_flux{i} = this_flux(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
-  bluewards_nv{i} = this_noise_variance(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
-  redwards_flux{i} = this_flux(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
-  redwards_nv{i} = this_noise_variance(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
+
+  % normalise the data we put into end model fitting
+  this_norm_flux           = this_flux / this_median;
+  this_norm_noise_variance = this_noise_variance / this_median .^ 2;
+
+  bluewards_flux{i} = this_norm_flux(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
+  bluewards_nv{i}   = this_norm_noise_variance(this_rest_wavelengths < min_lambda & ~this_pixel_mask);
+  redwards_flux{i}  = this_norm_flux(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
+  redwards_nv{i}    = this_norm_noise_variance(this_rest_wavelengths > max_lambda & ~this_pixel_mask);
 end
 bluewards_flux = cell2mat(bluewards_flux);
 bluewards_nv = cell2mat(bluewards_nv);
@@ -181,7 +186,7 @@ variables_to_save = {'training_release', 'train_ind', 'max_noise_variance', ...
                      'minFunc_output', 'bluewards_mu', 'bluewards_sigma', ...
                      'redwards_mu', 'redwards_sigma'};
 
-save(sprintf('%s/learned_zqso_only_model_%s_norm_%d-%d',             ...
+save(sprintf('%s/learned_zqso_only_model_outdata_normout_%s_norm_%d-%d',             ...
              processed_directory(training_release), ...
              training_set_name, ...
 	     normalization_min_lambda, normalization_max_lambda), ...

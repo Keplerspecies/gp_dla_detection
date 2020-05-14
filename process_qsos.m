@@ -1,12 +1,4 @@
 % process_qsos: run DLA detection algorithm on specified objects
-% 
-% Apr 8, 2020: add all Lyman series to the effective optical depth
-%   effective_optical_depth := ∑ τ fi1 λi1 / ( f21 λ21 ) * ( 1 + z_i1 )^β
-%  where 
-%   1 + z_i1 =  λobs / λ_i1 = λ_lya / λ_i1 *  (1 + z_a)
-% Dec 25, 2019: add Lyman series to the noise variance training
-%   s(z)     = 1 - exp(-effective_optical_depth) + c_0 
-% the mean values of Kim's effective optical depth
 %
 % Apr 28: add occams razor for penalising the missing pixels,
 %   this factor is tuned to affect log likelihood in a range +- 500,
@@ -14,18 +6,22 @@
 %   the current implemetation is:
 %     likelihood - occams_factor * (1 - lambda_observed / (max_lambda - min_lambda) )
 %   and occams_factor is a tunable hyperparameter
-prev_tau_0 = 0.0023;
-prev_beta  = 3.65;
+% 
+% May 11: out-of-range data penalty,
+%   adding additional log-likelihoods to the null model log likelihood,
+%   this additional log-likelihoods are:
+%     log N(y_bluewards; bluewards_mu, diag(V_bluewards) + bluewards_sigma^2 )
+%     log N(y_redwards;  redwards_mu,  diag(V_redwards)  + redwards_sigma^2 )
 
-occams_factor = 1000;
+occams_factor = 0; % turn this to zero if you don't want the incomplete data penalty
 
 % load QSO model from training release
-variables_to_load = {'rest_wavelengths', 'mu', 'M', 'log_omega',
+variables_to_load = {'rest_wavelengths', 'mu', 'M', ...
     'bluewards_mu', 'bluewards_sigma', ...
     'redwards_mu', 'redwards_sigma'};
-load(sprintf('%s/learned_qso_model_%s',             ...
+load(sprintf('%s/learned_zqso_only_model_outdata_normout_%s_norm_%d-%d',             ...
     processed_directory(training_release), ...
-    training_set_name),                    ...
+    training_set_name, normalization_min_lambda, normalization_max_lambda),  ...
     variables_to_load{:});
 
 % load redshifts from catalog to process
@@ -86,8 +82,6 @@ z_map                         = nan(num_quasars, 1);
 signal_to_noise               = nan(num_quasars, 1);
 
 z_list                   = 1:length(offset_samples_qso);
-%Debug output
-%all_mus = cell(size(z_list));
 
 fluxes                   = cell(length(z_list), 1);
 rest_wavelengths         = cell(length(z_list), 1);
@@ -141,11 +135,6 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         all_exceptions(quasar_ind, 1) = 1;
         continue;
     end
-   
-    addpath('./addrestfit'); 
-    %preprocess Gaussian i.i.d. model for off-restframe observations
-    bw_model = makedist('Normal', 'mu', bluewards_mu, 'sigma', bluewards_sigma);
-    rw_model = makedist('Normal', 'mu', redwards_mu, 'sigma', redwards_sigma);
     
     parfor i = 1:num_zqso_samples       %variant redshift in quasars
         z_qso = offset_samples_qso(i);
@@ -164,12 +153,6 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         min_observed_lambda = max(min_pos_lambda, min(this_wavelengths));
         lambda_observed = (max_observed_lambda - min_observed_lambda);
         
-        %Find probability for out-of-range model
-        bw_likelihoods = pdf(bw_model, this_flux(this_wavelengths < min_observed_lambda));
-        bw_log_likelihood = sum(log(bw_likelihoods));
-        rw_likelihoods = pdf(rw_model, this_flux(this_wavelengths > max_observed_lambda));
-        rw_log_likelihood = sum(log(rw_likelihoods));
-
         ind = (this_wavelengths > min_observed_lambda) & (this_wavelengths < max_observed_lambda);
         this_flux           = this_flux(ind);
         this_noise_variance = this_noise_variance(ind);
@@ -187,15 +170,35 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         this_flux           = this_flux / this_median;
         this_noise_variance = this_noise_variance / this_median .^ 2;
         
+        % Normalise the observed flux for out-of-range model since the
+        % redward- and blueward- models were trained with normalisation.
+        %Find probability for out-of-range model
+        this_normalized_flux = this_out_flux / this_median; % since we've modified this_flux, we thus need to
+                                                            % use this_out_flux which is outside the parfor loop
+        this_normalized_noise_variance = this_out_noise_variance / this_median .^2;
+
+        % select blueward region
+        ind_bw = (this_out_wavelengths < min_observed_lambda) & ~(this_out_pixel_mask);
+        this_normalized_flux_bw           = this_normalized_flux(ind_bw);
+        this_normalized_noise_variance_bw = this_normalized_noise_variance(ind_bw);
+        [n_bw, ~] = size(this_normalized_flux_bw);
+        % select redward region
+        ind_rw = (this_out_wavelengths > max_observed_lambda)  & ~(this_out_pixel_mask)
+        this_normalized_flux_rw           = this_normalized_flux(ind_rw);
+        this_normalized_noise_variance_rw = this_normalized_noise_variance(ind_rw);
+        [n_rw, ~] = size(this_normalized_flux_rw);
+
+        % calculate log likelihood of iid multivariate normal with
+        %   log N(y; mu, diag(V) + sigma^2 )
+        bw_log_likelihood = log_mvnpdf_iid(this_normalized_flux_bw, ...
+            bluewards_mu      * ones(n_bw, 1), ...
+            bluewards_sigma^2 * ones(n_bw, 1) + this_normalized_noise_variance_bw );
+        rw_log_likelihood = log_mvnpdf_iid(this_normalized_flux_rw, ...
+            redwards_mu      * ones(n_rw, 1), ...
+            redwards_sigma^2 * ones(n_rw, 1) + this_normalized_noise_variance_rw );
+
         ind = (this_rest_wavelengths >= min_lambda) & ...
             (this_rest_wavelengths <= max_lambda);
-        
-        % if (min_observed_lambda > max_observed_lambda) | (nnz(ind) < 150)
-        %     % If we have no data in the observed range, this sample is maximally unlikely.
-        %     sample_log_posteriors(quasar_ind, i) = -1.e50;
-        %     continue;
-        % end
-        %ind = ind & (~this_pixel_mask);
         
         ind = ind & (~this_pixel_mask);
 
@@ -219,32 +222,26 @@ for quasar_ind = q_ind_start:num_quasars %quasar list
         
         sample_log_priors = 0;
 
-        %occams = occams_factor * (1 - lambda_observed / (max_lambda - min_lambda) );
+        occams = occams_factor * (1 - lambda_observed / (max_lambda - min_lambda) );
 
         sample_log_posteriors(quasar_ind, i) = ...
             log_mvnpdf_low_rank(this_flux, this_mu, this_M, this_noise_variance) + sample_log_priors ...
-            + bw_log_likelihood + rw_log_likelihood;
-
-        % % Correct for incomplete data
-        % corr = nnz(ind) - length(this_rest_wavelengths);
-        % sample_log_posteriors(quasar_ind, i) = sample_log_posteriors(quasar_ind, i) + corr;
-
-        % fprintf_debug(' ... log p(D | z_QSO)     : %0.2f\n', ...
-        %     sample_log_posteriors(quasar_ind, i));
+            + bw_log_likelihood + rw_log_likelihood ...
+            - occams;
     end
     this_sample_log = sample_log_posteriors(quasar_ind, :);
     
     [~, I] = nanmax(this_sample_log);
     
     z_map(quasar_ind) = offset_samples_qso(I);                                  %MAP estimate
-
+    
     fprintf(' took %0.3fs.\n', toc);
 
-    zdiff = z_map(quasar_ind) - z_qsos(quasar_ind);
+    zdiff = z_map(quasar_ind) - z_qsos(quasar_num);
     if mod(quasar_ind, 1) == 0
         t = toc;
         fprintf('Done QSO %i of %i in %0.3f s. True z_QSO = %0.4f, I=%d map=%0.4f dif = %.04f\n', ...
-            quasar_ind, num_quasars, t, z_qsos(quasar_ind), I, z_map(quasar_ind), zdiff);
+            quasar_ind, num_quasars, t, z_qsos(quasar_num), I, z_map(quasar_ind), zdiff);
     end
 end
 
@@ -252,10 +249,10 @@ end
 variables_to_save = {'training_release', 'training_set_name', 'offset_samples_qso', 'sample_log_posteriors', ...
      'z_map', 'z_qsos', 'all_thing_ids', 'test_ind', 'z_true'};
 
-filename = sprintf('%s/processed_zqso_only_qsos_%s-%s_%d-%d_%d-%d_oc%d', ...
+filename = sprintf('%s/processed_zqso_only_qsos_%s-%s_%d-%d_%d-%d_outdata_normout_oc%d', ...
     processed_directory(release), ...
     test_set_name, optTag, ...
     qso_ind(1), qso_ind(1) + numel(qso_ind), ...
-    normalization_min_lambda, normalization_max_lambda);
+    normalization_min_lambda, normalization_max_lambda, occams_factor);
 
 save(filename, variables_to_save{:}, '-v7.3');
